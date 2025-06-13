@@ -1,0 +1,117 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=DEV
+    depends_on:
+      - game-factory
+
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    container_name: postgres-db
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./seedtool/db/data:/docker-entrypoint-initdb.d/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # db-seeder:
+  #   build:
+  #     context: .
+  #     dockerfile: db/Dockerfile.seed
+  #   environment:
+  #     - POSTGRES_USER=${POSTGRES_USER}
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #   depends_on:
+  #     - db
+
+  cache:
+    build:
+      context: ./cache
+      dockerfile: Dockerfile
+    container_name: cache
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      question-gen:
+        condition: service_healthy
+
+  game-factory:
+    build:
+      context: ./gamemaster
+      dockerfile: Dockerfile
+    container_name: game-factory
+    ports:
+      - "8003:8000"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+
+  question-gen:
+    build:
+      context: ./question_gen
+      dockerfile: Dockerfile
+    container_name: question-gen
+    ports:
+      - "8002:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DUMMY_MODE: ${DUMMY_MODE}
+      OPENAI_USER_AGENT: ${OPENAI_USER_AGENT}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  project:
+    driver: bridge
+
+volumes:
+  db-data:
+    driver: local
+  redis-data:
+    driver: local
